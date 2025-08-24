@@ -1,0 +1,6 @@
+This folder holds a couple of mini knowledge files.
+Add more `.txt` files here and rebuild the index.
+
+RAG (Retrieval Augmented Generation) is a pattern that retrieves relevant context
+and then uses a generator. Here we only implement retrieval + extractive answer
+without calling a large language model, so it runs 100% locally.
