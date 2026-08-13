@@ -28,55 +28,79 @@ order number has no meaning to capture. Searching `POL-4471`, the correct chunk 
 query "do you train models on my support conversations" manages 0.74 against 0.41, a
 margin more than twice as wide. Same index, same model.
 
-A narrow margin is a fragility signal, not a failure, and it is worth being precise
-about the difference: dense retrieval still ranked `POL-4471` first. Measured at the
-chunk level across 14 queries, dense missed the top spot on exactly one identifier
-query (`EXP-2DA cutoff time`, rank 2), which the lexical arm fixes. The numbers are
-below, including the one that did not go the way the design predicted.
+A narrow margin is a fragility signal, not a failure, and the difference is worth
+stating precisely: dense retrieval still ranked `POL-4471` first. Across the 22-case
+golden set, dense loses the top spot on exactly one identifier query (`EXP-2DA cutoff
+time`, rank 2) — which the lexical arm fixes, taking that category from 0.917 to a
+clean 1.000. The full numbers are below, including the one that went against the
+design.
 
 ## Measured results
 
-Chunk-level retrieval over the bundled corpus: 4 documents, 29 chunks, 14 queries
-split between exact identifiers and paraphrase. Ground truth is the specific passage
-containing the answer, not merely the right document — with only four documents,
-document-level scoring saturates at 1.000 for every mode and measures nothing.
+22 queries against the bundled corpus (4 documents, 29 chunks), scored at **chunk**
+level: ground truth is the specific passage containing the answer, not merely the right
+document. That distinction matters — with four documents, document-level scoring
+saturates at 1.000 for every configuration and measures nothing at all.
+
+```bash
+python -m ragkit eval --compare
+```
 
 | MRR@10 | dense | lexical | hybrid | hybrid + rerank |
 |---|---|---|---|---|
-| Exact identifiers (n=6) | 0.917 | 1.000 | **1.000** | 1.000 |
-| Paraphrase (n=8) | 0.844 | 0.000 | 0.844 | 0.838 |
-| **Overall (n=14)** | 0.875 | 0.429 | **0.911** | 0.907 |
+| exact-id (n=6) | 0.917 | 0.833 | **1.000** | 1.000 |
+| paraphrase (n=9) | 0.917 | 0.000 | **0.917** | 0.856 |
+| table (n=4) | 0.750 | 0.250 | **0.750** | 0.708 |
+| discriminate (n=3) | 1.000 | 0.000 | **1.000** | 1.000 |
+| **Overall (n=22)** | 0.898 | 0.273 | **0.920** | 0.888 |
 
-Three things worth reading off that table:
+**The arms have genuinely opposite blind spots.** Lexical misses **every paraphrase
+query** — 0.000, sixteen misses out of twenty-two overall — while beating nothing else
+on identifiers. Dense is the mirror image. That complementarity is the entire premise
+of hybrid retrieval, and here it is visible rather than asserted.
 
-**The arms have genuinely opposite blind spots.** Lexical scores a perfect 1.000 on
-identifiers and **0.000 on paraphrase** — it misses every single one. Dense is the
-mirror image, weaker exactly where lexical is strongest. That is the entire premise of
-hybrid retrieval, and it is visible here rather than asserted.
+**Fusion takes the better arm without paying for the worse one.** Hybrid beats dense on
+identifiers (0.917 → 1.000) while matching it exactly on paraphrase, tables, and
+discrimination. An arm returning nothing degrades to the other arm's ordering rather
+than dragging the result down — the RRF property the whole design leans on.
 
-**Fusion takes the better arm without paying for the worse one.** Hybrid matches
-lexical on identifiers (1.000) *and* matches dense on paraphrase (0.844, unchanged to
-three decimals). An arm returning nothing degrades to the other arm's ordering instead
-of dragging the result down, which is the RRF property the design depends on.
+**Reranking was measured, and it is off by default because it lost.** A cross-encoder
+costs 0.032 MRR here: −0.061 on paraphrase, −0.042 on tables, no gain anywhere. The
+code path stays and one environment variable turns it on, but the default follows the
+measurement rather than the convention. The honest scope of that claim is narrow — 22
+queries over 29 chunks, and `ms-marco-MiniLM` is trained on web search passages rather
+than policy documentation, so this says something about *this corpus*, not about
+cross-encoders. Which is exactly why the harness exists: run it on yours before
+trusting either default.
 
-**The reranker is not currently earning its place, and that is a real finding.**
-Overall MRR goes 0.911 → 0.907 with reranking on: one paraphrase query moves from rank
-4 to rank 5 and nothing improves. Two honest caveats — n=14 over 29 chunks is far too
-small to conclude a cross-encoder is useless in general, and `ms-marco-MiniLM` is
-trained on web passages rather than policy documentation. What it does support is the
-narrower claim: on this corpus, reranking adds latency and a model download for no
-measured gain. It stays in the pipeline and stays enabled by default, because the
-sample is too small to justify changing the default on a 0.004 difference — but the
-number is published rather than buried, and settling it properly on a real corpus is
-precisely what the eval harness is for.
+**Tables are the weakest area** at 0.750 MRR and 0.500 recall@1 — the answer is found,
+but often at rank 2 rather than rank 1. Recorded as a known gap rather than smoothed
+into the average.
+
+### The regression floor
+
+`evals/baseline.json` holds the committed metrics; CI runs `ragkit eval --check-floor`
+and fails the build when any metric drops more than 0.02 below it. The tolerance is
+deliberately not zero — a gate that trips on model-version noise gets disabled within a
+month, and a disabled gate protects nothing.
+
+Ground truth is checked against the corpus before anything is measured
+(`ragkit eval --verify`, also in CI). A case pointing at text somebody edited away
+reports a miss, which is indistinguishable from a genuine regression — the single most
+misleading failure a tool like this can have.
+
+Cases identify passages by source file plus a substring, never by chunk id or ordinal,
+so the set survives re-chunking. A golden set that breaks when you tune the chunker
+cannot tell you whether the tuning helped.
 
 Reproduce with `make demo`, or compare arms directly:
 
 ```bash
 python -m ragkit search "EXP-2DA cutoff time" --mode dense
 python -m ragkit search "EXP-2DA cutoff time" --mode lexical
-python -m ragkit search "EXP-2DA cutoff time"              # hybrid + rerank
-python -m ragkit search "EXP-2DA cutoff time" --no-rerank
+python -m ragkit search "EXP-2DA cutoff time"                    # hybrid (the default)
+RAG_RERANK_MODEL=Xenova/ms-marco-MiniLM-L-6-v2 \
+  python -m ragkit search "EXP-2DA cutoff time"                  # ...with reranking
 ```
 
 Every result line carries its provenance, so which arm found a passage — and which one
@@ -158,6 +182,8 @@ Configuration is environment-driven with working defaults for everything — see
 ```bash
 make test        # pure logic; no database, no download
 make test-all    # adds the Postgres-backed suite
+make eval        # retrieval quality against the golden set
+make eval-compare  # dense vs lexical vs hybrid vs +rerank
 ```
 
 Database tests skip themselves when no server is reachable, so `pytest` on a fresh
@@ -186,8 +212,8 @@ the eval harness is for.
 | ✅ | Incremental re-indexing by content hash, pruning of deleted sources |
 | ✅ | Lexical retrieval — Postgres full-text search, generated `tsvector`, GIN |
 | ✅ | Reciprocal Rank Fusion with per-arm provenance on every result |
-| ✅ | Cross-encoder reranking (measured; see the caveat above) |
-| 🔜 | Eval harness — recall@k, MRR, nDCG@10 against a committed golden set, with a CI regression floor |
+| ✅ | Cross-encoder reranking (measured; off by default because it lost) |
+| ✅ | Eval harness — 22-case golden set, MRR / recall@k / nDCG@10, CI regression floor |
 | 🔜 | HTTP and MCP interfaces over the same core |
 
 Known limits, stated rather than discovered later:
@@ -199,7 +225,9 @@ Known limits, stated rather than discovered later:
   magnitude larger.
 - **`ts_rank_cd` is cover density, not BM25.** No IDF term. See `store.search_lexical`
   for why that is acceptable under rank fusion and what it would take to change.
-- **Reranking is unproven here.** Slightly negative on this corpus; see above.
+- **Reranking is off by default** because it measured negative here; see above.
+- **Tables retrieve at 0.750 MRR / 0.500 recall@1** — the weakest category, and the
+  most obvious place to spend the next round of effort.
 - **English only.** The text search configuration is pinned to `'english'` in the
   generated column, so stemming and stopwords are wrong for anything else.
 

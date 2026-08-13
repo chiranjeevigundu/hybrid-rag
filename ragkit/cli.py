@@ -12,8 +12,19 @@ import sys
 import textwrap
 from pathlib import Path
 
-from .config import Config
+from .config import RERANK_MODEL, Config
 from .embedding import build_embedder
+from .evaluation import (
+    DEFAULT_BASELINE,
+    DEFAULT_GOLDEN_SET,
+    check_floor,
+    evaluate,
+    format_comparison,
+    format_detail,
+    load_golden_set,
+    save_baseline,
+    verify_golden_set,
+)
 from .indexer import index_directory
 from .rerank import build_reranker
 from .retrieval import Retriever, SearchMode
@@ -92,6 +103,86 @@ def cmd_search(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace, config: Config) -> int:
+    cases = load_golden_set(args.golden)
+
+    # Ground truth is checked before anything is measured. A stale case reports a
+    # miss, which is indistinguishable from a retrieval regression — the single most
+    # misleading failure mode a tool like this can have.
+    problems = verify_golden_set(cases, args.corpus)
+    if problems:
+        print("golden set does not match the corpus:", file=sys.stderr)
+        for p in problems:
+            print(f"  {p}", file=sys.stderr)
+        return 2
+    if args.verify:
+        print(f"ok: {len(cases)} cases, all ground-truth strings present in {args.corpus}")
+        return 0
+
+    store, embedder = _build(config)
+    # --compare must always produce a real rerank column, even though reranking is
+    # disabled by default. Building it from config.rerank_model would silently make
+    # that column a duplicate of `hybrid` and hide the very comparison being asked for.
+    rerank_model = RERANK_MODEL if args.compare else config.rerank_model
+    reranker = build_reranker(rerank_model, cache_dir=config.cache_dir)
+    if args.compare and reranker is None:  # pragma: no cover - defensive
+        print("could not build a reranker for comparison", file=sys.stderr)
+        return 2
+
+    def run(label: str, mode: SearchMode, rerank: bool):
+        return evaluate(
+            Retriever(store, embedder, reranker=reranker if rerank else None, rrf_k=config.rrf_k),
+            cases,
+            label=label,
+            k=args.k,
+            mode=mode,
+            rerank=rerank,
+            candidates=config.candidates,
+            rerank_candidates=config.rerank_candidates,
+        )
+
+    if args.compare:
+        results = [
+            run("dense", SearchMode.DENSE, False),
+            run("lexical", SearchMode.LEXICAL, False),
+            run("hybrid", SearchMode.HYBRID, False),
+            run("hybrid+rr", SearchMode.HYBRID, True),
+        ]
+        print(format_comparison(results))
+        primary = results[-1] if not args.no_rerank else results[-2]
+    else:
+        # The label must describe what actually ran, not what was asked for. With
+        # reranking disabled by default, `--no-rerank` being absent does not mean a
+        # reranker exists — labelling on the flag alone writes "hybrid+rr" into a
+        # committed baseline that contains no reranked numbers.
+        reranking = reranker is not None and not args.no_rerank
+        label = f"{args.mode}{'+rr' if reranking else ''}"
+        primary = run(label, SearchMode(args.mode), reranking)
+        print(format_comparison([primary]))
+
+    if args.detail:
+        print()
+        print(format_detail(primary))
+
+    if args.save_baseline:
+        save_baseline(primary, args.baseline, note=args.note)
+        print(f"\nbaseline saved to {args.baseline}")
+        return 0
+
+    if args.check_floor:
+        ok, messages = check_floor(primary, args.baseline, tolerance=args.tolerance)
+        print("\nregression floor:")
+        for m in messages:
+            print(m)
+        if not ok:
+            print(
+                "\nFAILED: retrieval quality dropped below the committed baseline.", file=sys.stderr
+            )
+            return 1
+        print("ok: no regression")
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace, config: Config) -> int:
     for key, value in Store(config.database_url).stats().items():
         print(f"{key:20} {value}")
@@ -149,6 +240,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip cross-encoder reranking (faster, and the honest A/B against it)",
     )
     p_search.set_defaults(func=cmd_search)
+
+    p_eval = sub.add_parser("eval", help="measure retrieval against the golden set")
+    p_eval.add_argument("--golden", default=str(DEFAULT_GOLDEN_SET), help="golden set JSON")
+    p_eval.add_argument("--corpus", default="corpus", help="corpus directory, for verification")
+    p_eval.add_argument("-k", type=int, default=10, help="retrieval depth (default 10)")
+    p_eval.add_argument(
+        "--mode", choices=[m.value for m in SearchMode], default=SearchMode.HYBRID.value
+    )
+    p_eval.add_argument("--no-rerank", action="store_true", help="measure without reranking")
+    p_eval.add_argument(
+        "--compare",
+        action="store_true",
+        help="run dense, lexical, hybrid and hybrid+rerank side by side",
+    )
+    p_eval.add_argument("--detail", action="store_true", help="per-case ranks")
+    p_eval.add_argument(
+        "--verify", action="store_true", help="only check the golden set against the corpus"
+    )
+    p_eval.add_argument("--baseline", default=str(DEFAULT_BASELINE))
+    p_eval.add_argument("--save-baseline", action="store_true", help="write the current metrics")
+    p_eval.add_argument("--note", default="", help="note recorded with a saved baseline")
+    p_eval.add_argument(
+        "--check-floor", action="store_true", help="fail if metrics dropped below the baseline"
+    )
+    p_eval.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.02,
+        help="how far a metric may drop before failing (default 0.02)",
+    )
+    p_eval.set_defaults(func=cmd_eval)
 
     sub.add_parser("stats", help="index statistics").set_defaults(func=cmd_stats)
 

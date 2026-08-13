@@ -46,3 +46,17 @@ demo: up install init index ## Full path from nothing to a working index
 	@python -m ragkit search "how long do I have to return an international order?"
 
 .PHONY: help up down clean install init index search stats test test-all lint fmt demo
+
+eval: ## Measure retrieval against the golden set
+	python -m ragkit eval --detail
+
+eval-compare: ## Compare dense / lexical / hybrid / +rerank
+	python -m ragkit eval --compare
+
+eval-check: ## Fail if retrieval regressed below evals/baseline.json
+	python -m ragkit eval --check-floor
+
+eval-baseline: ## Re-record the regression floor from current metrics
+	python -m ragkit eval --save-baseline
+
+.PHONY: eval eval-compare eval-check eval-baseline

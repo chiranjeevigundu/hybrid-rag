@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
-from .config import DEFAULT_RERANK_MODEL
+from .config import RERANK_MODEL as DEFAULT_RERANK_MODEL
 
 
 @runtime_checkable

@@ -103,3 +103,54 @@ jobs:
           echo "$out"
           echo "$out" | grep -qE 'indexed +0' || { echo "re-index did not skip unchanged files"; exit 1; }
           python -m ragkit search "refund window" -k 3
+
+      - name: The golden set must match the corpus
+        # Runs without a model, so it is cheap and catches the failure that would
+        # otherwise masquerade as a retrieval regression: a case pointing at text
+        # somebody edited out of the corpus.
+        run: python -m ragkit eval --verify
+
+  # Retrieval quality, gated. Separated from `test` because it needs the real
+  # embedding model, which is a ~90 MB download the unit suite deliberately avoids.
+  retrieval-quality:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: rag
+          POSTGRES_DB: rag
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag -d rag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://rag:rag@localhost:5433/rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ hashFiles('pyproject.toml') }}
+
+      - run: pip install -e ".[embed,dev]"
+
+      - name: Index the corpus
+        run: |
+          python -m ragkit init
+          python -m ragkit index corpus
+
+      - name: Retrieval must not regress below the committed baseline
+        # The gate. Fails the build when MRR, recall, or nDCG drop more than the
+        # tolerance below evals/baseline.json. A change that makes retrieval worse
+        # now has to argue with a number rather than a reviewer's intuition.
+        run: python -m ragkit eval --check-floor --detail

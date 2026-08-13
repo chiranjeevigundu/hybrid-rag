@@ -1,0 +1,43 @@
+{
+  "label": "hybrid",
+  "n": 22,
+  "k": 10,
+  "note": "hybrid, no rerank; bge-base-en-v1.5; 22-case golden set on the bundled corpus",
+  "metrics": {
+    "mrr": 0.9205,
+    "recall@1": 0.8636,
+    "recall@3": 0.9545,
+    "recall@10": 1.0,
+    "ndcg@10": 0.9406
+  },
+  "per_kind": {
+    "discriminate": {
+      "mrr": 1.0,
+      "recall@1": 1.0,
+      "recall@3": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 1.0
+    },
+    "exact-id": {
+      "mrr": 1.0,
+      "recall@1": 1.0,
+      "recall@3": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 1.0
+    },
+    "paraphrase": {
+      "mrr": 0.9167,
+      "recall@1": 0.8889,
+      "recall@3": 0.8889,
+      "recall@10": 1.0,
+      "ndcg@10": 0.9367
+    },
+    "table": {
+      "mrr": 0.75,
+      "recall@1": 0.5,
+      "recall@3": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8155
+    }
+  }
+}

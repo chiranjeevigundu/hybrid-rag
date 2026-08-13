@@ -18,9 +18,26 @@ DEFAULT_DIM = 768
 #: still runs, recall is just worse than it should be. See embedding.py.
 DEFAULT_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
-#: ~80 MB, against ~1 GB for BAAI/bge-reranker-base. Chosen to keep clone-and-run
-#: honest; whether the larger model earns its size is an eval question, not a guess.
-DEFAULT_RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+#: The cross-encoder to use when reranking is enabled. ~80 MB, against ~1 GB for
+#: BAAI/bge-reranker-base.
+RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+
+#: **Reranking is off by default, because it was measured and it did not help.**
+#:
+#: On the bundled 22-case golden set it costs 0.032 MRR (0.920 → 0.888): negative on
+#: paraphrase (-0.061) and tables (-0.042), neutral on identifiers, positive on
+#: nothing. Reproduce with `ragkit eval --compare`.
+#:
+#: The likely reason is a distribution mismatch — ms-marco-MiniLM is trained on web
+#: search passages, and this corpus is policy and API documentation — compounded by a
+#: corpus small enough that the fused candidates are already well ordered, leaving the
+#: reranker nothing to fix and room to break.
+#:
+#: This is a claim about this corpus, not about cross-encoders. Reranking earns its
+#: place on many real corpora, which is why the code path stays. Set RAG_RERANK_MODEL
+#: to enable it and run `ragkit eval --compare` on your own data before trusting
+#: either default — that measurement is the entire point of the harness.
+DEFAULT_RERANK_MODEL = "none"
 
 
 @dataclass(frozen=True)

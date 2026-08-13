@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "description": "Golden set for the bundled corpus. Ground truth is a source file plus a substring the correct passage must contain, so cases survive re-chunking and re-indexing. Every 'contains' value is verified against the corpus by `ragkit eval --verify`, which runs in CI.",
+  "kinds": {
+    "exact-id": "Opaque identifiers, codes, and header names. Embeddings have no meaning to encode for these, so this is where the lexical arm should carry the query.",
+    "paraphrase": "Natural questions sharing few or no words with the passage that answers them. The dense arm's home ground; lexical should miss most of these outright.",
+    "table": "The answer lives inside a markdown table. Fails outright if chunking splits tables, which is what makes these worth separating out.",
+    "discriminate": "Terms that appear in more than one document. Tests whether retrieval picks the right context rather than merely the right keyword."
+  },
+  "cases": [
+    {
+      "id": "id-policy-number",
+      "query": "POL-4471",
+      "kind": "exact-id",
+      "relevant": [{"source": "refund-policy.md", "contains": "POL-4471"}],
+      "why": "A bare document identifier with no semantic content whatsoever."
+    },
+    {
+      "id": "id-superseded-policy",
+      "query": "which policy does POL-3980 replace",
+      "kind": "exact-id",
+      "relevant": [{"source": "refund-policy.md", "contains": "supersedes POL-3980"}],
+      "why": "Identifier embedded in a natural question — needs both arms to cooperate."
+    },
+    {
+      "id": "id-promo-code",
+      "query": "SPRING24",
+      "kind": "exact-id",
+      "relevant": [{"source": "refund-policy.md", "contains": "SPRING24"}],
+      "why": "Promo code appearing exactly once, in an exceptions section."
+    },
+    {
+      "id": "id-carrier-code",
+      "query": "EXP-2DA cutoff time",
+      "kind": "exact-id",
+      "relevant": [{"source": "shipping.md", "contains": "EXP-2DA"}],
+      "why": "The one query dense retrieval demoted to rank 2 before the lexical arm existed."
+    },
+    {
+      "id": "id-signature-header",
+      "query": "X-Signature header",
+      "kind": "exact-id",
+      "relevant": [{"source": "api-reference.md", "contains": "X-Signature"}],
+      "why": "An HTTP header name: hyphenated, capitalised, and meaningless to an embedding."
+    },
+    {
+      "id": "id-idempotency",
+      "query": "idempotency_key",
+      "kind": "exact-id",
+      "relevant": [{"source": "api-reference.md", "contains": "idempotency_key"}],
+      "why": "Snake_case field name. Tokenisation splits it, which is worth exercising."
+    },
+    {
+      "id": "table-international-window",
+      "query": "how long do I have to return an international order?",
+      "kind": "table",
+      "relevant": [{"source": "refund-policy.md", "contains": "| International | 60 days"}],
+      "why": "The answer is one row of a table. If chunking split it, the row arrives without its header and this fails."
+    },
+    {
+      "id": "table-restocking-fee",
+      "query": "what is the restocking fee for clearance items",
+      "kind": "table",
+      "relevant": [{"source": "refund-policy.md", "contains": "| Clearance | 14 days | $25.00"}],
+      "why": "Requires reading across columns of the same row."
+    },
+    {
+      "id": "table-overnight-cutoff",
+      "query": "latest I can order for next business day delivery",
+      "kind": "table",
+      "relevant": [{"source": "shipping.md", "contains": "| Overnight | OVN-1DA"}],
+      "why": "Paraphrase whose answer is a table cell — needs dense retrieval to reach a table."
+    },
+    {
+      "id": "table-error-1005",
+      "query": "error code 1005",
+      "kind": "table",
+      "relevant": [{"source": "api-reference.md", "contains": "Idempotency key reused with different body"}],
+      "why": "Numeric code in a table. The number alone is a weak embedding signal."
+    },
+    {
+      "id": "para-damaged-parcel",
+      "query": "what happens if my package shows up broken",
+      "kind": "paraphrase",
+      "relevant": [{"source": "shipping.md", "contains": "photograph the packaging before opening"}],
+      "why": "'broken' never appears in the passage; 'damaged' does."
+    },
+    {
+      "id": "para-model-training",
+      "query": "do you train models on my support conversations",
+      "kind": "paraphrase",
+      "relevant": [{"source": "security-faq.md", "contains": "not used to train any model"}],
+      "why": "Close paraphrase of the heading, which the heading-path fold should help with."
+    },
+    {
+      "id": "para-refund-clock",
+      "query": "when does the refund clock start counting",
+      "kind": "paraphrase",
+      "relevant": [{"source": "refund-policy.md", "contains": "delivery date recorded by the carrier"}],
+      "why": "'clock' appears nowhere in the corpus. Purely semantic."
+    },
+    {
+      "id": "para-opened-box",
+      "query": "can I send it back if I opened the box",
+      "kind": "paraphrase",
+      "relevant": [{"source": "refund-policy.md", "contains": "original packaging"}],
+      "why": "Colloquial phrasing against formal policy language."
+    },
+    {
+      "id": "para-refund-speed",
+      "query": "how fast until money is back on my card",
+      "kind": "paraphrase",
+      "relevant": [{"source": "refund-policy.md", "contains": "three to five business days"}],
+      "why": "The passage says 'card refunds typically appear'; the query says 'money is back'."
+    },
+    {
+      "id": "para-who-sees-payment",
+      "query": "which staff can look at my card number",
+      "kind": "paraphrase",
+      "relevant": [{"source": "security-faq.md", "contains": "payment instrument details"}],
+      "why": "The answer uses 'payment instrument', a phrase no user would type."
+    },
+    {
+      "id": "para-pallet-nobody-home",
+      "query": "what if nobody is home when the freight arrives",
+      "kind": "paraphrase",
+      "relevant": [{"source": "shipping.md", "contains": "curbside only"}],
+      "why": "Situational question against a policy statement."
+    },
+    {
+      "id": "para-breach-notice",
+      "query": "how quickly would you tell me if you got hacked",
+      "kind": "paraphrase",
+      "relevant": [{"source": "security-faq.md", "contains": "within 72 hours of confirmation"}],
+      "why": "'hacked' is colloquial; the passage says 'breach'."
+    },
+    {
+      "id": "para-data-location",
+      "query": "which country are my records kept in",
+      "kind": "paraphrase",
+      "relevant": [{"source": "security-faq.md", "contains": "Frankfurt"}],
+      "why": "Answer is a city name; question asks about a country."
+    },
+    {
+      "id": "disc-how-many-days-lost",
+      "query": "how long before a parcel counts as lost",
+      "kind": "discriminate",
+      "relevant": [{"source": "shipping.md", "contains": "fifteen business days with no tracking movement"}],
+      "why": "Day-count windows appear in both refunds and shipping. Keyword matching alone lands in the wrong document."
+    },
+    {
+      "id": "disc-retention-vs-refund",
+      "query": "how long do you keep my data after I close my account",
+      "kind": "discriminate",
+      "relevant": [{"source": "security-faq.md", "contains": "seven years"}],
+      "why": "'how long' plus a duration also matches refund windows and shipping transit times."
+    },
+    {
+      "id": "disc-rate-limit-vs-cutoff",
+      "query": "what limit applies per minute",
+      "kind": "discriminate",
+      "relevant": [{"source": "api-reference.md", "contains": "600 requests per minute"}],
+      "why": "'limit' and time units appear in shipping cutoffs and refund windows too."
+    }
+  ]
+}
