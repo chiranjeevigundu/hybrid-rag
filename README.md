@@ -118,6 +118,44 @@ reranking is on, the retrieval score when it is off. Showing a cosine value besi
 rerank-sorted list prints a column that visibly is not sorted, which reads as a broken
 ranker rather than a mislabelled column.
 
+## Three faces, one core
+
+The same retrieval engine is reachable three ways, because the consumers genuinely
+differ — not because three interfaces sounded thorough.
+
+**Library** — `from ragkit import Retriever`. The eval harness and indexing jobs import
+it directly; putting HTTP in front of a batch job would be pure overhead.
+
+**HTTP** — `uvicorn ragkit.service:app`. For service-to-service calls. A backend in
+another container wants a typed JSON contract, not tool schemas written for a model to
+read.
+
+```bash
+curl -s localhost:8080/search \
+  -H 'content-type: application/json' \
+  -d '{"query": "how long to return an international order?", "k": 3}'
+```
+
+**MCP** — `python -m ragkit.mcp_server`. For LLM clients. Three tools: `search_corpus`,
+`get_chunk`, `corpus_stats`, all annotated read-only.
+
+```bash
+claude mcp add hybrid-rag -- python -m ragkit.mcp_server
+```
+
+A `.mcp.json` is committed, so cloning the repo and opening it in Claude Code is enough
+— no global config to edit.
+
+Two things are deliberately *not* exposed on either remote face:
+
+**No indexing endpoint.** It needs filesystem access, runs for minutes on a real
+corpus, and would put a caller-supplied path in front of the disk — a long-running
+request wrapped around a path-traversal surface. Indexing stays a batch job.
+
+**MCP results are truncated; HTTP results are not.** A model paying per token wants a
+400-character snippet and a `chunk_id` it can expand on demand; a backend rendering
+citations wants the passage. Same core, different obligations.
+
 ## Design decisions worth the words
 
 **Structure-aware chunking.** Documents are parsed into blocks *before* being packed
@@ -214,7 +252,7 @@ the eval harness is for.
 | ✅ | Reciprocal Rank Fusion with per-arm provenance on every result |
 | ✅ | Cross-encoder reranking (measured; off by default because it lost) |
 | ✅ | Eval harness — 22-case golden set, MRR / recall@k / nDCG@10, CI regression floor |
-| 🔜 | HTTP and MCP interfaces over the same core |
+| ✅ | Three faces over one core — Python library, HTTP API, MCP server |
 
 Known limits, stated rather than discovered later:
 

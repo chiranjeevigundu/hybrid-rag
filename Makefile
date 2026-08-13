@@ -60,3 +60,11 @@ eval-baseline: ## Re-record the regression floor from current metrics
 	python -m ragkit eval --save-baseline
 
 .PHONY: eval eval-compare eval-check eval-baseline
+
+serve: ## Run the HTTP API on :8080
+	uvicorn ragkit.service:app --port 8080 --reload
+
+mcp: ## Run the MCP server on stdio (for manual inspection)
+	python -m ragkit.mcp_server
+
+.PHONY: serve mcp

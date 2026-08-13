@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "hybrid-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "ragkit.mcp_server"],
+      "env": {
+        "DATABASE_URL": "postgresql://rag:rag@localhost:5433/rag"
+      }
+    }
+  }
+}
