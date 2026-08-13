@@ -40,11 +40,35 @@ class Hit:
     title: str | None
     score: float
 
+    # Retrieval provenance, populated by Retriever rather than the store. Which arm
+    # surfaced a result — and which one missed it — is the single most useful thing
+    # to know when a query goes wrong, and it is unrecoverable after fusion collapses
+    # the two lists into one. "lexical found it at rank 2, dense missed it entirely"
+    # diagnoses in one line what a bare score cannot.
+    dense_rank: int | None = None
+    lexical_rank: int | None = None
+    rerank_score: float | None = None
+
     @property
     def citation(self) -> str:
         """Where this came from, in a form worth showing a user."""
         where = " > ".join(self.heading_path)
         return f"{self.source}" + (f" § {where}" if where else "")
+
+    @property
+    def provenance(self) -> str:
+        """Which retrieval arms surfaced this, and at what rank.
+
+        Deliberately excludes `rerank_score`: reranking is a reordering stage, not a
+        retrieval arm, and its score lives on a different scale entirely. Callers that
+        want both render them as separate fields rather than running them together.
+        """
+        parts = []
+        if self.dense_rank is not None:
+            parts.append(f"dense#{self.dense_rank}")
+        if self.lexical_rank is not None:
+            parts.append(f"lexical#{self.lexical_rank}")
+        return " ".join(parts) if parts else "—"
 
 
 class Store:
@@ -193,6 +217,60 @@ class Store:
                 LIMIT %s
                 """,
                 (vec, vec, k),
+            ).fetchall()
+        return [
+            Hit(
+                chunk_id=r[0],
+                text=r[1],
+                heading_path=tuple(r[2] or ()),
+                kind=r[3],
+                source=r[4],
+                title=r[5],
+                score=float(r[6]),
+            )
+            for r in rows
+        ]
+
+    def search_lexical(self, query: str, k: int = 10) -> list[Hit]:
+        """Full-text matches, ranked by cover density.
+
+        **This is `ts_rank_cd`, not BM25.** The distinction is worth keeping straight
+        rather than borrowing the more familiar name: BM25 scores a document from term
+        frequency, inverse document frequency, and length normalisation against
+        corpus-wide statistics. `ts_rank_cd` scores by how densely the query terms
+        cluster within the document and does not consult corpus statistics at all, so
+        it has no IDF term — a match on "the" and a match on "POL-4471" carry the same
+        weight before density is considered. Real BM25 needs per-term document
+        frequencies Postgres does not maintain for a tsvector column; getting them
+        means a term-statistics table or an extension such as ParadeDB's pg_search.
+
+        It is acceptable here because fusion happens over **ranks**, not scores (see
+        fusion.py). RRF only needs this arm to order its own results sensibly, and
+        cover density does that. Whether real BM25 would order them better is a
+        measurable question, which is what the eval harness is for.
+
+        `websearch_to_tsquery` rather than `to_tsquery`: it accepts arbitrary user
+        input without raising, handles "quoted phrases", OR, and -negation, and
+        degrades to an empty query on pure stopwords instead of erroring. `to_tsquery`
+        raises a syntax error on so ordinary an input as two bare words.
+        """
+        if not query.strip():
+            return []
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                WITH q AS (SELECT websearch_to_tsquery('english', %s) AS query)
+                SELECT c.id, c.text, c.heading_path, c.kind,
+                       d.source, d.title,
+                       ts_rank_cd(c.tsv, q.query) AS score
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                CROSS JOIN q
+                WHERE c.tsv @@ q.query
+                ORDER BY score DESC, c.id
+                LIMIT %s
+                """,
+                (query, k),
             ).fetchall()
         return [
             Hit(

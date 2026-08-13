@@ -54,8 +54,23 @@ jobs:
 
       - name: Test
         env:
+          # conftest derives a `_test` database from this and creates it on demand,
+          # so the suite never drops the schema the e2e step below indexes into.
           DATABASE_URL: postgresql://rag:rag@localhost:5433/rag
         run: pytest -q -m "not model"
+
+      - name: Tests must not have touched the working database
+        # Guards the isolation directly. If conftest ever stopped deriving a separate
+        # database, this is the step that notices, rather than a developer losing an
+        # index and not connecting it to having run the suite.
+        env:
+          PGPASSWORD: rag
+        run: |
+          set -euo pipefail
+          both=$(psql -h localhost -p 5433 -U rag -d postgres -tAc \
+            "SELECT count(*) FROM pg_database WHERE datname IN ('rag','rag_test');")
+          [ "$both" = "2" ] || { echo "expected both rag and rag_test to exist, found $both"; exit 1; }
+          echo "ok: rag and rag_test are separate databases"
 
       - name: The schema must match the model's dimension
         # A mismatch between vector(N) in the migration and the embedder's output is

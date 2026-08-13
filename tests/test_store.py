@@ -22,8 +22,15 @@ def test_to_pgvector_formats_for_postgres():
 
 
 def test_schema_is_idempotent(store: Store):
-    # ensure_schema runs on every CLI invocation; a second run must be a no-op.
-    assert store.ensure_schema() == ["001_schema.sql"]
+    # ensure_schema runs on every CLI invocation, so a second run must be a no-op
+    # rather than an error. Derived from the directory rather than hardcoded, so
+    # adding a migration does not break this test for the wrong reason.
+    from ragkit.store import MIGRATIONS_DIR
+
+    expected = [p.name for p in sorted(MIGRATIONS_DIR.glob("*.sql"))]
+    assert expected, "no migrations found — the glob or the path is wrong"
+    assert store.ensure_schema() == expected
+    assert store.ensure_schema() == expected, "re-applying migrations was not a no-op"
 
 
 def test_upsert_then_search_round_trip(store: Store, embedder):

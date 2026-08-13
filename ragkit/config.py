@@ -18,6 +18,10 @@ DEFAULT_DIM = 768
 #: still runs, recall is just worse than it should be. See embedding.py.
 DEFAULT_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
+#: ~80 MB, against ~1 GB for BAAI/bge-reranker-base. Chosen to keep clone-and-run
+#: honest; whether the larger model earns its size is an eval question, not a guess.
+DEFAULT_RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+
 
 @dataclass(frozen=True)
 class Config:
@@ -30,6 +34,13 @@ class Config:
     max_chars: int = 2000
     batch_size: int = 64
     cache_dir: str | None = None
+
+    # Retrieval. "none" disables reranking; "identity" selects the test stand-in.
+    rerank_model: str = DEFAULT_RERANK_MODEL
+    rrf_k: int = 60
+    candidates: int = 50
+    rerank_candidates: int = 25
+
     extra: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -44,4 +55,8 @@ class Config:
             max_chars=int(os.getenv("RAG_MAX_CHARS", str(cls.max_chars))),
             batch_size=int(os.getenv("RAG_BATCH_SIZE", str(cls.batch_size))),
             cache_dir=os.getenv("RAG_CACHE_DIR") or None,
+            rerank_model=os.getenv("RAG_RERANK_MODEL", cls.rerank_model),
+            rrf_k=int(os.getenv("RAG_RRF_K", str(cls.rrf_k))),
+            candidates=int(os.getenv("RAG_CANDIDATES", str(cls.candidates))),
+            rerank_candidates=int(os.getenv("RAG_RERANK_CANDIDATES", str(cls.rerank_candidates))),
         )

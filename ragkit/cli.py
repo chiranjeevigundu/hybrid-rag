@@ -15,7 +15,8 @@ from pathlib import Path
 from .config import Config
 from .embedding import build_embedder
 from .indexer import index_directory
-from .retrieval import Retriever
+from .rerank import build_reranker
+from .retrieval import Retriever, SearchMode
 from .store import Store
 
 
@@ -57,12 +58,34 @@ def cmd_index(args: argparse.Namespace, config: Config) -> int:
 
 def cmd_search(args: argparse.Namespace, config: Config) -> int:
     store, embedder = _build(config)
-    hits = Retriever(store, embedder).search(args.query, k=args.k)
+    reranker = (
+        None if args.no_rerank else build_reranker(config.rerank_model, cache_dir=config.cache_dir)
+    )
+    retriever = Retriever(store, embedder, reranker=reranker, rrf_k=config.rrf_k)
+    hits = retriever.search(
+        args.query,
+        k=args.k,
+        mode=args.mode,
+        candidates=config.candidates,
+        rerank_candidates=config.rerank_candidates,
+    )
     if not hits:
         print("no results")
         return 0
     for rank, hit in enumerate(hits, 1):
-        print(f"\n{rank}. [{hit.score:.4f}] {hit.citation}")
+        # The leading number must always be the one that produced this ordering.
+        # When a reranker runs it overrides the retrieval score, so printing the
+        # cosine or RRF value here shows a column that is visibly not sorted — which
+        # reads as a bug in the ranking rather than a bug in the display.
+        if hit.rerank_score is not None:
+            lead = f"rerank {hit.rerank_score:+.2f}"
+            trailing = f"{hit.provenance}, retrieval {hit.score:.4f}"
+        else:
+            lead = f"{hit.score:.4f}"
+            trailing = hit.provenance
+        # Provenance on every line: which arm found a passage is what you actually
+        # need when a result looks wrong, and the score alone cannot tell you.
+        print(f"\n{rank}. [{lead}] {hit.citation}   ({trailing})")
         body = " ".join(hit.text.split())
         print(textwrap.indent(textwrap.fill(body[:400], width=88), "   "))
     print()
@@ -113,6 +136,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_search = sub.add_parser("search", help="search the index")
     p_search.add_argument("query")
     p_search.add_argument("-k", type=int, default=5, help="number of results (default 5)")
+    p_search.add_argument(
+        "--mode",
+        choices=[m.value for m in SearchMode],
+        default=SearchMode.HYBRID.value,
+        help="retrieval mode (default hybrid). dense/lexical isolate a single arm, "
+        "which is how you see what each contributes",
+    )
+    p_search.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="skip cross-encoder reranking (faster, and the honest A/B against it)",
+    )
     p_search.set_defaults(func=cmd_search)
 
     sub.add_parser("stats", help="index statistics").set_defaults(func=cmd_stats)
