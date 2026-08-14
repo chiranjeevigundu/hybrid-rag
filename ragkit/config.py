@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 DEFAULT_MODEL = "BAAI/bge-base-en-v1.5"
 DEFAULT_DIM = 768
@@ -40,6 +41,36 @@ RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 DEFAULT_RERANK_MODEL = "none"
 
 
+def _database_url_from_env(default: str) -> str:
+    """`DATABASE_URL` if set, otherwise assembled from parts.
+
+    A single DSN is the friendlier local knob and stays the primary one. The parts
+    exist because no orchestrator hands you a DSN: ECS, Kubernetes and Compose all
+    inject a secret as its own variable, and the managed-database services generate the
+    password themselves. Building the URL in the deployment would mean interpolating
+    that password into a string in a shell script, which is both a quoting bug waiting
+    to happen and a good way to get a credential into a log.
+
+    The password is quoted rather than concatenated. Generated passwords contain `@`,
+    `/` and `:` often enough that concatenation produces a URL which parses cleanly
+    into the *wrong* host, and the resulting error names a server nobody configured.
+    """
+    explicit = os.getenv("DATABASE_URL")
+    if explicit:
+        return explicit
+
+    host = os.getenv("RAG_DB_HOST")
+    if not host:
+        return default
+
+    user = quote(os.getenv("RAG_DB_USER", "rag"), safe="")
+    password = quote(os.getenv("RAG_DB_PASSWORD", ""), safe="")
+    port = os.getenv("RAG_DB_PORT", "5432")
+    name = os.getenv("RAG_DB_NAME", "rag")
+    credentials = f"{user}:{password}@" if password else f"{user}@"
+    return f"postgresql://{credentials}{host}:{port}/{name}"
+
+
 @dataclass(frozen=True)
 class Config:
     database_url: str = "postgresql://rag:rag@localhost:5433/rag"
@@ -63,7 +94,7 @@ class Config:
     @classmethod
     def from_env(cls) -> Config:
         return cls(
-            database_url=os.getenv("DATABASE_URL", cls.database_url),
+            database_url=_database_url_from_env(cls.database_url),
             model_name=os.getenv("RAG_MODEL", cls.model_name),
             embedding_dim=int(os.getenv("RAG_EMBEDDING_DIM", str(cls.embedding_dim))),
             query_prefix=os.getenv("RAG_QUERY_PREFIX", cls.query_prefix),

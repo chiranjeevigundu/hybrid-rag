@@ -24,7 +24,7 @@ serve = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 # The MCP face. Separate again, because a service-to-service caller has no use for
 # tool schemas and an MCP client has no use for uvicorn.
 mcp = ["mcp>=2.0"]
-dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27", "fastapi>=0.110", "mcp>=2.0"]
+dev = ["pytest>=8", "ruff==0.16.3", "httpx>=0.27", "fastapi>=0.110", "mcp>=2.0"]
 
 [project.scripts]
 ragkit = "ragkit.cli:main"
