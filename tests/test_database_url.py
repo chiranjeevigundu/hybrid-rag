@@ -4,6 +4,7 @@
 no orchestrator hands you a DSN: ECS, Kubernetes and Compose all inject a secret as its
 own variable, and managed-database services generate the password themselves.
 """
+
 import pytest
 
 from ragkit.config import Config
